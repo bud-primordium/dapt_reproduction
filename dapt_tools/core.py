@@ -350,16 +350,17 @@ def _solve_diagonal_ode(
                         B_nk_current[i, j] = spline_real(s_clamped) + 1j * spline_imag(
                             s_clamped
                         )
-
+                # 试试这能不能修复二阶
                 # 获取 M^{kn}
-                M_kn = M_matrices[(k, subspace_n)]  # 对应 M^{k, n}
+                M_nk = M_matrices[(subspace_n, k)]
 
-                # 【理论核心修正】确保这里是 B @ M 的顺序: B_{nk} @ M^{kn}
-                rhs -= B_nk_current @ M_kn
+                # 同步把M_kn改成M_nk
+                rhs -= B_nk_current @ M_nk
 
         # 微分方程：dB/ds = rhs - B @ M^{nn}
         M_nn = M_matrices[(subspace_n, subspace_n)]
-        dB_ds = rhs - B_nn @ M_nn
+        # 尝试交换 B_nn 和 M_nn 的乘法顺序
+        dB_ds = rhs - M_nn @ B_nn
 
         # 将复数矩阵导数转换为实数向量
         dB_real = np.real(dB_ds).flatten()
