@@ -11,7 +11,7 @@ core.py
 
 Author: Gilbert Young
 Date: 2025-06-07
-Version: 2.4 - 【重大理论修正】修复论文Eq.(25)递推关系的维度错误和波函数重构逻辑
+Version: 2.5 - 【二阶修正】修复对角项ODE求解中的索引和矩阵乘法顺序错误
 """
 
 import numpy as np
@@ -210,7 +210,8 @@ def dapt_recursive_step(
             if m != n:  # 非对角项
                 # 计算Ḃ_{mn}^{(p)}（时间导数）
                 B_mn_p = B_coeffs_p[(m, n)]
-                B_mn_p_dot = np.gradient(B_mn_p, dt, axis=0)
+                # 尝试使用更高阶的边界条件进行数值微分
+                B_mn_p_dot = np.gradient(B_mn_p, dt, axis=0, edge_order=2)
 
                 # 【核心修正】使用向量化计算 Σ_k B_{nk}^{(p)} M^{km}
                 summation_term = np.zeros_like(B_mn_p, dtype=complex)
@@ -350,17 +351,15 @@ def _solve_diagonal_ode(
                         B_nk_current[i, j] = spline_real(s_clamped) + 1j * spline_imag(
                             s_clamped
                         )
-                # 试试这能不能修复二阶
                 # 获取 M^{kn}
-                M_nk = M_matrices[(subspace_n, k)]
+                M_kn = M_matrices[(k, subspace_n)]
 
-                # 同步把M_kn改成M_nk
-                rhs -= B_nk_current @ M_nk
+                # 正确的矩阵乘法顺序
+                rhs -= B_nk_current @ M_kn
 
         # 微分方程：dB/ds = rhs - B @ M^{nn}
         M_nn = M_matrices[(subspace_n, subspace_n)]
-        # 尝试交换 B_nn 和 M_nn 的乘法顺序
-        dB_ds = rhs - M_nn @ B_nn
+        dB_ds = rhs - B_nn @ M_nn
 
         # 将复数矩阵导数转换为实数向量
         dB_real = np.real(dB_ds).flatten()
