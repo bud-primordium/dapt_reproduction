@@ -1,0 +1,67 @@
+[project]
+name = "dapt_reproduction"
+version = "0.1.0"
+description = "数值复现 G. Rigolin 和 G. Ortiz 2014年 DAPT 论文"
+authors = [{ name = "Gilbert Young", email = "gilbertyoung0015@gmail.com" }]
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = ["numpy>=1.20.0", "scipy>=1.7.0", "matplotlib>=3.5.0"]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=7.0.0",
+  "pytest-cov>=4.0.0",
+  "ipykernel>=6.0.0",
+  "black>=23.0.0",
+  "flake8>=6.0.0",
+]
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+  "-ra",
+  "--strict-markers",
+  "--strict-config",
+  "--cov=dapt_tools",
+  "--cov-branch",
+  "--cov-report=term-missing:skip-covered",
+  "--cov-report=html:htmlcov",
+  "--cov-fail-under=85",
+]
+markers = [
+  "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+  "integration: marks tests as integration tests",
+  "performance: marks tests as performance tests",
+  "optimization: marks tests related to code optimization",
+]
+filterwarnings = [
+  "ignore::UserWarning",
+  "ignore::DeprecationWarning",
+  "ignore::PendingDeprecationWarning",
+]
+
+[tool.black]
+line-length = 88
+target-version = ['py38']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
