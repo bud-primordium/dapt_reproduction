@@ -1,7 +1,9 @@
 # DAPT 数值复现项目
 
 **作者**: Gilbert Young
+
 **日期**: 2025-06-08
+
 **状态**: **成功复现。** 核心物理行为与论文图示一致，已定位并理解残留的微小数值偏差。
 
 ## 项目概述
@@ -255,7 +257,7 @@ python -m pytest -m "integration" -v   # 集成测试
 
 ## 参考文献
 
-1. G. Rigolin and G. Ortiz, "Degenerate adiabatic perturbation theory," *Physical Review A* **90**, 022104 (2014).
+1. G. Rigolin and G. Ortiz, "Degenerate adiabatic perturbation theory," *Physical Review A* **90**, 022104 (2014). [DOI: 10.1103/PhysRevA.90.022104](https://doi.org/10.1103/PhysRevA.90.022104)
 
 ## 联系方式
 
