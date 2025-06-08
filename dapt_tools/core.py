@@ -214,22 +214,13 @@ def dapt_recursive_step(
 
                 # 【核心修正】使用向量化计算 Σ_k B_{nk}^{(p)} M^{km}
                 summation_term = np.zeros_like(B_mn_p, dtype=complex)
-
                 for k in range(2):  # 遍历中间子空间 k
-                    # 【修正】获取 B_{mk}^{(p)} (注意索引顺序是m,k)
-                    B_mk_p = B_coeffs_p[
-                        (m, k)
-                    ]  # shape: (N_steps, d_m, d_k) -> (N_steps, 2, 2)
-
-                    # 【修正】预先提取所有时间点的 M^{kn} 矩阵 (注意索引顺序是k,n)
-                    M_kn_series = np.array(
-                        [M_matrix_func(s)[(k, n)] for s in s_span]
-                    )  # shape: (N_steps, d_k, d_n) -> (N_steps, 2, 2)
-
-                    # 【理论核心修正】根据Debug笔记Eq.C1: Σ_k B_{mk}^{(p)} @ M^{kn}
-                    # 'tik,tkj->tij' 表示对每个时间点t独立进行矩阵乘法
-                    # 结果维度: (d_m, d_k) @ (d_k, d_n) -> (d_m, d_n)，与B_mn_p维度一致
-                    batch_product = np.einsum("tik,tkj->tij", B_mk_p, M_kn_series)
+                    # 【最终修正】获取 B_{nk}^{(p)} (索引: n, k)
+                    B_nk_p = B_coeffs_p[(n, k)]
+                    # 【最终修正】获取 M^{km} 矩阵 (索引: k, m)
+                    M_km_series = np.array([M_matrix_func(s)[(k, m)] for s in s_span])
+                    # 【最终修正】正确的矩阵乘法: B_nk @ M^km
+                    batch_product = np.einsum("tik,tkj->tij", B_nk_p, M_km_series)
                     summation_term += batch_product
 
                 # 计算能隙Δ_{nm}
@@ -242,7 +233,7 @@ def dapt_recursive_step(
                 for i in range(len(s_span)):
                     if abs(Delta_nm[i]) > 1e-12:  # 避免除零
                         B_mn_p_plus_1[i] = (1j * hbar / Delta_nm[i]) * (
-                            B_mn_p_dot[i] + summation_term[i]
+                            B_mn_p_dot[i] - summation_term[i]
                         )
                     else:
                         B_mn_p_plus_1[i] = np.zeros_like(B_mn_p[i])
@@ -595,64 +586,45 @@ def run_dapt_calculation(s_span, order, params):
         print(f"   第3步完成 (耗时: {step3_time:.2f}s)")
 
     # --------------------------------------------------------------------------
-    # 【重大逻辑修正】第4步：构造各阶DAPT近似解
+    # 【最终修正】第4步：构造各阶DAPT近似解
     # --------------------------------------------------------------------------
     print(f"\n第4步：构造各阶DAPT近似解 (0阶 → {order}阶)...")
     step4_start = time.time()
     dapt_solutions = {}
-
-    # 定义初始系数向量，对应于从|0^0(0)⟩开始
-    c_init = np.array([1.0, 0.0], dtype=complex)  # 对应于|0^0(0)⟩
-
-    # 预计算源子空间(n=0)的相位因子，这是所有修正项共用的
+    c_init = np.array([1.0, 0.0], dtype=complex)
+    # 【关键】预计算源子空间(n=0)的相位因子，所有修正项共用
     omega_0_series = omega_interpolators[0](s_span)
     source_phase_factor_series = np.exp(-1j * omega_0_series / params.get("v", 1.0))
-
-    # 首先计算每一阶的纯修正波函数 |Ψ^(p)⟩
     psi_p_series = {}
     for p in range(order + 1):
         v_power = params.get("v", 1.0) ** p
         psi_p = np.zeros((len(s_span), 4), dtype=complex)
-
         for i, s in enumerate(s_span):
             _, eigenvectors = get_eigensystem(s, params)
             psi_p_i = np.zeros(4, dtype=complex)
-
-            # 根据修正后的理论 |Ψ^(p)⟩ = e^(-iω_0/v) * [ Σ_n (B_{n0}^{(p)} c_0) |n⟩ ]
-            # 循环遍历所有 *目标* 子空间 n
+            # 遍历所有 *目标* 子空间 n_target
             for n_target in range(2):
-                # 获取从源子空间 0 到目标子空间 n_target 的系数矩阵
-                B_n0_p = all_B_coeffs[p][(n_target, 0)][i]  # shape: (d_n, d_0)
-
-                # 计算在目标子空间 n_target 中的演化系数
-                coeffs_in_n = B_n0_p @ c_init  # shape: (d_n,)
-
-                # 将系数乘在 *目标* 子空间 |n_target(s)⟩ 的基矢上
+                B_n0_p = all_B_coeffs[p][(n_target, 0)][i]
+                coeffs_in_n = B_n0_p @ c_init
                 for alpha in range(2):
                     global_idx = 2 * n_target + alpha
                     base_state = eigenvectors[:, global_idx]
                     psi_p_i += coeffs_in_n[alpha] * base_state
-
-            # 乘以公共的相位因子和 v^p
+            # 【关键】所有项乘以公共的源相位因子
             psi_p[i] = v_power * source_phase_factor_series[i] * psi_p_i
-
         psi_p_series[p] = psi_p
-
-    # 然后，根据微扰级数，累加构造各阶近似解
-    # 第k阶近似解 = Σ_{p=0 to k} |Ψ^(p)⟩
+    # 累加构造各阶近似解
     for k in tqdm(range(order + 1), desc="构造各阶解", total=order + 1):
         psi_k = np.zeros((len(s_span), 4), dtype=complex)
         for p in range(k + 1):
             psi_k += psi_p_series[p]
 
-        # 【可选但推荐】对每一阶的最终波函数进行归一化，以匹配非忠诚度定义
+        # 归一化以进行比较
         for i in range(len(s_span)):
             norm = np.linalg.norm(psi_k[i])
             if norm > 1e-12:
                 psi_k[i] /= norm
-
         dapt_solutions[k] = psi_k
-
     step4_time = time.time() - step4_start
     total_time = time.time() - start_time
     print(f"   第4步完成 (耗时: {step4_time:.2f}s)")
