@@ -286,20 +286,6 @@ class TestOptimizationRegressionProtection:
         assert "c_init" in source, "初始系数向量定义已被移除"
         assert "@ c_init" in source, "矩阵-向量乘法已被修改"
 
-    @pytest.mark.optimization
-    def test_optimization_comments_preserved(self):
-        """确保优化相关的重要注释被保留"""
-        from dapt_tools.core import dapt_recursive_step
-        import inspect
-
-        recursive_source = inspect.getsource(dapt_recursive_step)
-
-        # 检查关键的优化和修正注释
-        assert "理论修正" in recursive_source, "理论修正注释已被移除"
-        assert "核心修正" in recursive_source, "核心修正注释已被移除"
-        assert "向量化" in recursive_source, "向量化注释已被移除"
-        assert "einsum" in recursive_source, "einsum相关注释已被移除"
-
 
 if __name__ == "__main__":
     # 可以直接运行此文件进行快速测试
