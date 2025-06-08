@@ -778,7 +778,7 @@ class TestHighPrecisionODESolver:
         s_span = np.linspace(0, 1, 21)
 
         # 构造一个有解析解的简单微分方程
-        # dU/ds = iωU，解为 U(s) = U₀ exp(iωs)
+        # dU/ds = -U M，其中M = iωI，解为 U(s) = U₀ exp(-iωs)
         omega = 0.1  # 较小的频率避免数值误差累积
 
         def M_nn_func(s):

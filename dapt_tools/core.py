@@ -42,7 +42,7 @@ except ImportError:
                 progress = (i + 1) / total * 100
                 print(f"   进度: {progress:.1f}% ({i+1}/{total})")
             yield item
-        print(f"   ✅ {desc} 完成!")
+        print(f"   {desc} 完成。")
 
 
 def calculate_M_matrix(s, ds, params, get_eigensystem_func=None):
@@ -125,8 +125,8 @@ def solve_wz_phase(s_span, M_nn_func, U_n_0):
         # 获取当前时刻的M^{nn}矩阵
         M_nn = M_nn_func(s)
 
-        # 【理论关键修正】矩阵乘法顺序必须是 M在前, U在后
-        dU_n_ds = -M_nn @ U_n
+        # 【理论关键修正】根据Debug笔记Eq.29: dU^n/ds = -U^n(s) M^{nn}(s)
+        dU_n_ds = -U_n @ M_nn
 
         # 分离实部和虚部
         dU_real = np.real(dU_n_ds).flatten()
@@ -171,7 +171,7 @@ def solve_wz_phase(s_span, M_nn_func, U_n_0):
             U_n_solution[i] = U_real + 1j * U_imag
 
     elapsed_time = time.time() - start_time
-    print(f"      ✅ WZ相矩阵计算完成 (耗时: {elapsed_time:.2f}s)")
+    print(f"      WZ相矩阵计算完成 (耗时: {elapsed_time:.2f}s)")
 
     return U_n_solution
 
@@ -216,20 +216,20 @@ def dapt_recursive_step(
                 summation_term = np.zeros_like(B_mn_p, dtype=complex)
 
                 for k in range(2):  # 遍历中间子空间 k
-                    # 【修正】获取 B_{nk}^{(p)}
-                    B_nk_p = B_coeffs_p[
-                        (n, k)
-                    ]  # shape: (N_steps, d_n, d_k) -> (N_steps, 2, 2)
+                    # 【修正】获取 B_{mk}^{(p)} (注意索引顺序是m,k)
+                    B_mk_p = B_coeffs_p[
+                        (m, k)
+                    ]  # shape: (N_steps, d_m, d_k) -> (N_steps, 2, 2)
 
-                    # 【修正】预先提取所有时间点的 M^{km} 矩阵
-                    M_km_series = np.array(
-                        [M_matrix_func(s)[(k, m)] for s in s_span]
-                    )  # shape: (N_steps, d_k, d_m) -> (N_steps, 2, 2)
+                    # 【修正】预先提取所有时间点的 M^{kn} 矩阵 (注意索引顺序是k,n)
+                    M_kn_series = np.array(
+                        [M_matrix_func(s)[(k, n)] for s in s_span]
+                    )  # shape: (N_steps, d_k, d_n) -> (N_steps, 2, 2)
 
-                    # 【理论核心修正】使用einsum进行批量矩阵乘法: B_{nk}^{(p)} @ M^{km}
+                    # 【理论核心修正】根据Debug笔记Eq.C1: Σ_k B_{mk}^{(p)} @ M^{kn}
                     # 'tik,tkj->tij' 表示对每个时间点t独立进行矩阵乘法
-                    # 结果维度: (d_n, d_k) @ (d_k, d_m) -> (d_n, d_m)，与B_mn_p维度一致
-                    batch_product = np.einsum("tik,tkj->tij", B_nk_p, M_km_series)
+                    # 结果维度: (d_m, d_k) @ (d_k, d_n) -> (d_m, d_n)，与B_mn_p维度一致
+                    batch_product = np.einsum("tik,tkj->tij", B_mk_p, M_kn_series)
                     summation_term += batch_product
 
                 # 计算能隙Δ_{nm}
@@ -241,7 +241,7 @@ def dapt_recursive_step(
                 B_mn_p_plus_1 = np.zeros_like(B_mn_p, dtype=complex)
                 for i in range(len(s_span)):
                     if abs(Delta_nm[i]) > 1e-12:  # 避免除零
-                        B_mn_p_plus_1[i] = (-1j * hbar / Delta_nm[i]) * (
+                        B_mn_p_plus_1[i] = (1j * hbar / Delta_nm[i]) * (
                             B_mn_p_dot[i] + summation_term[i]
                         )
                     else:
@@ -453,12 +453,12 @@ def run_dapt_calculation(s_span, order, params):
     - dapt_results: 字典，包含各阶DAPT近似解和中间计算结果
     """
     start_time = time.time()
-    print(f"🚀 开始DAPT计算，最高阶数: {order}")
+    print(f"开始DAPT计算，最高阶数: {order}")
     print(f"   时间点数量: {len(s_span)}")
     print(f"   时间范围: {s_span[0]:.3f} → {s_span[-1]:.3f}")
 
     # 预计算M矩阵和WZ相矩阵
-    print("\n📊 第1步：预计算M矩阵和WZ相矩阵...")
+    print("\n第1步：预计算M矩阵和WZ相矩阵...")
     step1_start = time.time()
     ds = 1e-4  # M矩阵计算的数值微分步长（注释说明：新版中ds参数已不再使用）
 
@@ -522,11 +522,14 @@ def run_dapt_calculation(s_span, order, params):
         omega_interpolators[n] = CubicSpline(s_span, omega_n_series)
 
     step1_time = time.time() - step1_start
-    print(f"   ✅ 第1步完成 (耗时: {step1_time:.2f}s)")
+    print(f"   第1步完成 (耗时: {step1_time:.2f}s)")
 
     def Delta_func(s, m, n):
         """
         【最终理论修正】计算子空间间的能隙 Δ_{nm} = E_n - E_m
+
+        CLARIFICATION: 根据调试笔记，Δ_nm = E_n(s) - E_m(s).
+        例如，从基态(m=0)到激发态(n=1)的能隙为 Δ_10 = E_1 - E_0 > 0.
         """
         eigenvalues, _ = get_eigensystem(s, params)
 
@@ -538,7 +541,7 @@ def run_dapt_calculation(s_span, order, params):
         return E_n - E_m
 
     # 初始化零阶系数：B^{(0)}_{mn} = b_n(0) U^n(s) δ_{mn}
-    print("\n🔧 第2步：初始化零阶系数...")
+    print("\n第2步：初始化零阶系数...")
     step2_start = time.time()
     B_coeffs = {}
 
@@ -555,11 +558,11 @@ def run_dapt_calculation(s_span, order, params):
     # 存储各阶结果
     all_B_coeffs = {0: B_coeffs}
     step2_time = time.time() - step2_start
-    print(f"   ✅ 第2步完成 (耗时: {step2_time:.2f}s)")
+    print(f"   第2步完成 (耗时: {step2_time:.2f}s)")
 
     # 递推计算高阶修正项
     if order > 0:
-        print(f"\n🔄 第3步：递推计算高阶修正项 (0阶 → {order}阶)...")
+        print(f"\n第3步：递推计算高阶修正项 (0阶 → {order}阶)...")
         step3_start = time.time()
         for p in range(order):
             print(f"   计算第{p+1}阶修正项...")
@@ -570,14 +573,14 @@ def run_dapt_calculation(s_span, order, params):
             all_B_coeffs[p + 1] = B_coeffs_next
             B_coeffs = B_coeffs_next
             substep_time = time.time() - substep_start
-            print(f"   ✅ 第{p+1}阶完成 (耗时: {substep_time:.2f}s)")
+            print(f"   第{p+1}阶完成 (耗时: {substep_time:.2f}s)")
         step3_time = time.time() - step3_start
-        print(f"   ✅ 第3步完成 (耗时: {step3_time:.2f}s)")
+        print(f"   第3步完成 (耗时: {step3_time:.2f}s)")
 
     # --------------------------------------------------------------------------
     # 【重大逻辑修正】第4步：构造各阶DAPT近似解
     # --------------------------------------------------------------------------
-    print(f"\n🎯 第4步：构造各阶DAPT近似解 (0阶 → {order}阶)...")
+    print(f"\n第4步：构造各阶DAPT近似解 (0阶 → {order}阶)...")
     step4_start = time.time()
     dapt_solutions = {}
 
@@ -628,8 +631,8 @@ def run_dapt_calculation(s_span, order, params):
 
     step4_time = time.time() - step4_start
     total_time = time.time() - start_time
-    print(f"   ✅ 第4步完成 (耗时: {step4_time:.2f}s)")
-    print(f"\n🎉 DAPT计算完成！总耗时: {total_time:.2f}s")
+    print(f"   第4步完成 (耗时: {step4_time:.2f}s)")
+    print(f"\nDAPT计算完成！总耗时: {total_time:.2f}s")
     print(f"   平均每阶耗时: {total_time/(order+1):.2f}s")
 
     return {

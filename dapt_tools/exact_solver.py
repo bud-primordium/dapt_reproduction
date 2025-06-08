@@ -32,7 +32,7 @@ def solve_schrodinger_exact(s_span, params, initial_state_vector):
     返回：
     - exact_solution: 精确解的时间演化，形状为(len(s_span), 4)
     """
-    print(f"🎯 开始精确薛定谔方程求解...")
+    print(f"开始精确求解薛定谔方程...")
     start_time = time.time()
     print(f"   时间点数量: {len(s_span)}")
     print(f"   时间范围: {s_span[0]:.3f} → {s_span[-1]:.3f}")
@@ -85,7 +85,7 @@ def solve_schrodinger_exact(s_span, params, initial_state_vector):
         raise RuntimeError(f"薛定谔方程求解失败: {solution.message}")
 
     ode_time = time.time() - ode_start
-    print(f"   ✅ ODE求解完成 (耗时: {ode_time:.2f}s)")
+    print(f"   ODE求解完成 (耗时: {ode_time:.2f}s)")
 
     # 重构复数向量解
     print("   重构复数波函数...")
@@ -97,7 +97,7 @@ def solve_schrodinger_exact(s_span, params, initial_state_vector):
         exact_solution[i] = psi_real + 1j * psi_imag
 
     total_time = time.time() - start_time
-    print(f"   ✅ 精确解计算完成！总耗时: {total_time:.2f}s")
+    print(f"   精确解计算完成。总耗时: {total_time:.2f}s")
 
     return exact_solution
 
