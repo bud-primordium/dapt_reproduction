@@ -216,20 +216,16 @@ def dapt_recursive_step(
                 summation_term = np.zeros_like(B_mn_p, dtype=complex)
 
                 for k in range(2):  # 遍历中间子空间 k
-                    # 【修正】获取 B_{mk}^{(p)} (注意索引顺序是m,k)
-                    B_mk_p = B_coeffs_p[
-                        (m, k)
-                    ]  # shape: (N_steps, d_m, d_k) -> (N_steps, 2, 2)
-
-                    # 【修正】预先提取所有时间点的 M^{kn} 矩阵 (注意索引顺序是k,n)
-                    M_kn_series = np.array(
-                        [M_matrix_func(s)[(k, n)] for s in s_span]
-                    )  # shape: (N_steps, d_k, d_n) -> (N_steps, 2, 2)
-
-                    # 【理论核心修正】根据Debug笔记Eq.C1: Σ_k B_{mk}^{(p)} @ M^{kn}
+                    # 【修正】获取 B_{nk}^{(p)} (注意索引顺序是 n, k)
+                    B_nk_p = B_coeffs_p[(n, k)]  # shape: (N_steps, d_n, d_k)
+                    # 【修正】预先提取所有时间点的 M^{km} 矩阵 (注意索引顺序是 k, m)
+                    M_km_series = np.array(
+                        [M_matrix_func(s)[(k, m)] for s in s_span]
+                    )  # shape: (N_steps, d_k, d_m)
+                    # 【理论核心修正】根据正确的递推关系：Σ_k B_{nk}^{(p)} @ M^{km}
                     # 'tik,tkj->tij' 表示对每个时间点t独立进行矩阵乘法
-                    # 结果维度: (d_m, d_k) @ (d_k, d_n) -> (d_m, d_n)，与B_mn_p维度一致
-                    batch_product = np.einsum("tik,tkj->tij", B_mk_p, M_kn_series)
+                    # 维度: (d_n, d_k) @ (d_k, d_m) -> (d_n, d_m)，与B_mn_p维度一致
+                    batch_product = np.einsum("tik,tkj->tij", B_nk_p, M_km_series)
                     summation_term += batch_product
 
                 # 计算能隙Δ_{nm}
@@ -272,6 +268,23 @@ def dapt_recursive_step(
 
         B_coeffs_p_plus_1[(n, n)] = B_nn_solution
 
+    if order_p == 0:  # 只在计算第一阶修正时打印
+        print("\n--- DEBUG: B^(1) Coefficients ---")
+        B_10_p1 = B_coeffs_p_plus_1[(1, 0)]
+        B_01_p1 = B_coeffs_p_plus_1[(0, 1)]
+
+        # 检查 B_10 是否接近于零
+        norm_B10 = np.linalg.norm(B_10_p1)
+        print(f"Norm of B_10^(1): {norm_B10}")
+        if np.allclose(norm_B10, 0):
+            print("   [诊断确认] B_10^(1) 几乎为零，这是问题的根源！")
+
+        # 检查 B_01 是否非零
+        norm_B01 = np.linalg.norm(B_01_p1)
+        print(f"Norm of B_01^(1): {norm_B01}")
+        if not np.allclose(norm_B01, 0):
+            print("   [诊断确认] B_01^(1) 非零，但对波函数修正贡献错误。")
+        print("---------------------------------\n")
     return B_coeffs_p_plus_1
 
 
