@@ -233,8 +233,9 @@ def dapt_recursive_step(
                 B_mn_p_plus_1 = np.zeros_like(B_mn_p, dtype=complex)
                 for i in range(len(s_span)):
                     if abs(Delta_nm[i]) > 1e-12:  # 避免除零
+                        # 【符号修正】理论 Eq.(25): B_{mn}^{(p+1)} = (iℏ/Δ) [ -Ḃ_{mn}^{(p)} - Σ_k B_{nk}^{(p)} M^{km} ]
                         B_mn_p_plus_1[i] = (1j * hbar / Delta_nm[i]) * (
-                            B_mn_p_dot[i] - summation_term[i]
+                            -B_mn_p_dot[i] - summation_term[i]
                         )
                     else:
                         B_mn_p_plus_1[i] = np.zeros_like(B_mn_p[i])
