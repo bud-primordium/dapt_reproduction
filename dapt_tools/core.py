@@ -216,16 +216,20 @@ def dapt_recursive_step(
                 summation_term = np.zeros_like(B_mn_p, dtype=complex)
 
                 for k in range(2):  # 遍历中间子空间 k
-                    # 【修正】获取 B_{nk}^{(p)} (注意索引顺序是 n, k)
-                    B_nk_p = B_coeffs_p[(n, k)]  # shape: (N_steps, d_n, d_k)
-                    # 【修正】预先提取所有时间点的 M^{km} 矩阵 (注意索引顺序是 k, m)
-                    M_km_series = np.array(
-                        [M_matrix_func(s)[(k, m)] for s in s_span]
-                    )  # shape: (N_steps, d_k, d_m)
-                    # 【理论核心修正】根据正确的递推关系：Σ_k B_{nk}^{(p)} @ M^{km}
+                    # 【修正】获取 B_{mk}^{(p)} (注意索引顺序是m,k)
+                    B_mk_p = B_coeffs_p[
+                        (m, k)
+                    ]  # shape: (N_steps, d_m, d_k) -> (N_steps, 2, 2)
+
+                    # 【修正】预先提取所有时间点的 M^{kn} 矩阵 (注意索引顺序是k,n)
+                    M_kn_series = np.array(
+                        [M_matrix_func(s)[(k, n)] for s in s_span]
+                    )  # shape: (N_steps, d_k, d_n) -> (N_steps, 2, 2)
+
+                    # 【理论核心修正】根据Debug笔记Eq.C1: Σ_k B_{mk}^{(p)} @ M^{kn}
                     # 'tik,tkj->tij' 表示对每个时间点t独立进行矩阵乘法
-                    # 维度: (d_n, d_k) @ (d_k, d_m) -> (d_n, d_m)，与B_mn_p维度一致
-                    batch_product = np.einsum("tik,tkj->tij", B_nk_p, M_km_series)
+                    # 结果维度: (d_m, d_k) @ (d_k, d_n) -> (d_m, d_n)，与B_mn_p维度一致
+                    batch_product = np.einsum("tik,tkj->tij", B_mk_p, M_kn_series)
                     summation_term += batch_product
 
                 # 计算能隙Δ_{nm}
@@ -600,6 +604,10 @@ def run_dapt_calculation(s_span, order, params):
     # 定义初始系数向量，对应于从|0^0(0)⟩开始
     c_init = np.array([1.0, 0.0], dtype=complex)  # 对应于|0^0(0)⟩
 
+    # 预计算源子空间(n=0)的相位因子，这是所有修正项共用的
+    omega_0_series = omega_interpolators[0](s_span)
+    source_phase_factor_series = np.exp(-1j * omega_0_series / params.get("v", 1.0))
+
     # 首先计算每一阶的纯修正波函数 |Ψ^(p)⟩
     psi_p_series = {}
     for p in range(order + 1):
@@ -610,27 +618,23 @@ def run_dapt_calculation(s_span, order, params):
             _, eigenvectors = get_eigensystem(s, params)
             psi_p_i = np.zeros(4, dtype=complex)
 
-            # 【重大波函数重构修正】根据公式 |Ψ^(p)⟩ = Σ_{m} e^(-iω_m/v) [B_{m0}^{(p)} c_init] |m⟩
-            # 关键：演化后的系数应作用在目标子空间 m 的基矢上
-            for m in range(2):  # 目标子空间 m
-                # 【最终精度修复】使用插值器获取高精度相位
-                omega_m = omega_interpolators[m](s)
-                phase_factor = np.exp(-1j * omega_m / params.get("v", 1.0))
+            # 根据修正后的理论 |Ψ^(p)⟩ = e^(-iω_0/v) * [ Σ_n (B_{n0}^{(p)} c_0) |n⟩ ]
+            # 循环遍历所有 *目标* 子空间 n
+            for n_target in range(2):
+                # 获取从源子空间 0 到目标子空间 n_target 的系数矩阵
+                B_n0_p = all_B_coeffs[p][(n_target, 0)][i]  # shape: (d_n, d_0)
 
-                # 获取从源子空间 n=0 到目标子空间 m 的系数矩阵
-                # 我们只关心从 n=0 出发的演化
-                B_m0_p = all_B_coeffs[p][(m, 0)][i]  # shape: (d_m, d_0) -> (2, 2)
+                # 计算在目标子空间 n_target 中的演化系数
+                coeffs_in_n = B_n0_p @ c_init  # shape: (d_n,)
 
-                # B_{m0}^{(p)} 作用在初始系数向量 c_init 上，得到在子空间m中的系数
-                coeffs_in_m = B_m0_p @ c_init  # shape: (d_m,) -> (2,)
-
-                # 【理论核心修正】将系数乘在目标子空间 |m(s)⟩ 的基矢上
-                for alpha in range(2):  # 遍历目标子空间 m 的基矢
-                    global_idx = 2 * m + alpha
+                # 将系数乘在 *目标* 子空间 |n_target(s)⟩ 的基矢上
+                for alpha in range(2):
+                    global_idx = 2 * n_target + alpha
                     base_state = eigenvectors[:, global_idx]
-                    psi_p_i += phase_factor * coeffs_in_m[alpha] * base_state
+                    psi_p_i += coeffs_in_n[alpha] * base_state
 
-            psi_p[i] = v_power * psi_p_i
+            # 乘以公共的相位因子和 v^p
+            psi_p[i] = v_power * source_phase_factor_series[i] * psi_p_i
 
         psi_p_series[p] = psi_p
 
@@ -640,6 +644,13 @@ def run_dapt_calculation(s_span, order, params):
         psi_k = np.zeros((len(s_span), 4), dtype=complex)
         for p in range(k + 1):
             psi_k += psi_p_series[p]
+
+        # 【可选但推荐】对每一阶的最终波函数进行归一化，以匹配非忠诚度定义
+        for i in range(len(s_span)):
+            norm = np.linalg.norm(psi_k[i])
+            if norm > 1e-12:
+                psi_k[i] /= norm
+
         dapt_solutions[k] = psi_k
 
     step4_time = time.time() - step4_start
