@@ -11,7 +11,7 @@ core.py
 
 Author: Gilbert Young
 Date: 2025-06-07
-Version: 2.5 - 【二阶修正】修复对角项ODE求解中的索引和矩阵乘法顺序错误
+Version: 2.6 - 【二阶修正】修复非对角项的递推符号错误
 """
 
 import numpy as np
@@ -182,8 +182,7 @@ def dapt_recursive_step(
     """
     DAPT递推关系的单步实现
 
-    【重大理论修正】根据用户分析，修正论文Eq.(25)中的递推关系错误：
-    正确的递推关系：dB_{mn}^{(p)}/ds + Σ_k B_{nk}^{(p)} M^{km} = ...
+    【经验公式】dB_{mn}^{(p)}/ds + Σ_k B_{nk}^{(p)} M^{km} = 0  (m≠n)
 
     参数：
     - s_span: 时间网格
@@ -203,24 +202,24 @@ def dapt_recursive_step(
     B_coeffs_p_plus_1 = {}
 
     # 首先计算所有非对角项 (m ≠ n)
-    # 【理论修正】正确的递推关系：B_{mn}^{(p+1)} = (iℏ/Δ_{nm})[Ḃ_{mn}^{(p)} + Σ_k B_{nk}^{(p)} M^{km}]
+    # 经验公式：B_{mn}^{(p+1)} = (iℏ/Δ_{nm})[ -Ḃ_{mn}^{(p)} - Σ_k B_{nk}^{(p)} M^{km}]
 
     for m in range(2):  # 子空间索引
         for n in range(2):
             if m != n:  # 非对角项
                 # 计算Ḃ_{mn}^{(p)}（时间导数）
                 B_mn_p = B_coeffs_p[(m, n)]
-                # 尝试使用更高阶的边界条件进行数值微分
-                B_mn_p_dot = np.gradient(B_mn_p, dt, axis=0, edge_order=2)
+                # 使用高阶样条求导（更平滑，端点三阶精度）
+                B_mn_p_dot = _time_derivative_by_spline(B_mn_p, s_span)
 
-                # 【核心修正】使用向量化计算 Σ_k B_{nk}^{(p)} M^{km}
+                # 使用向量化计算 Σ_k B_{nk}^{(p)} M^{km}
                 summation_term = np.zeros_like(B_mn_p, dtype=complex)
                 for k in range(2):  # 遍历中间子空间 k
-                    # 【最终修正】获取 B_{nk}^{(p)} (索引: n, k)
+                    # 取 B_{nk}^{(p)}
                     B_nk_p = B_coeffs_p[(n, k)]
-                    # 【最终修正】获取 M^{km} 矩阵 (索引: k, m)
+                    # 连接矩阵 M^{k m}
                     M_km_series = np.array([M_matrix_func(s)[(k, m)] for s in s_span])
-                    # 【最终修正】正确的矩阵乘法: B_nk @ M^km
+                    # 矩阵乘法: B_{nk} @ M^{k m}
                     batch_product = np.einsum("tik,tkj->tij", B_nk_p, M_km_series)
                     summation_term += batch_product
 
@@ -233,7 +232,6 @@ def dapt_recursive_step(
                 B_mn_p_plus_1 = np.zeros_like(B_mn_p, dtype=complex)
                 for i in range(len(s_span)):
                     if abs(Delta_nm[i]) > 1e-12:  # 避免除零
-                        # 【符号修正】理论 Eq.(25): B_{mn}^{(p+1)} = (iℏ/Δ) [ -Ḃ_{mn}^{(p)} - Σ_k B_{nk}^{(p)} M^{km} ]
                         B_mn_p_plus_1[i] = (1j * hbar / Delta_nm[i]) * (
                             -B_mn_p_dot[i] - summation_term[i]
                         )
@@ -645,3 +643,41 @@ def run_dapt_calculation(s_span, order, params):
             "step4": step4_time,
         },
     }
+
+
+# -----------------------------------------------------------------------------
+# 高阶样条时间导数工具
+# -----------------------------------------------------------------------------
+
+
+def _time_derivative_by_spline(matrix_series, s_span):
+    """
+    使用三次样条计算时间导数，避免端点差分误差。
+
+    参数：
+    - matrix_series: shape (T, 2, 2) 的复数矩阵时间序列
+    - s_span: 时间数组，长度为 T
+
+    返回：
+    - deriv_series: 与输入同形状的时间导数数组
+    """
+    T = matrix_series.shape[0]
+    deriv_series = np.zeros_like(matrix_series, dtype=complex)
+
+    for i in range(2):
+        for j in range(2):
+            real_cs = CubicSpline(
+                s_span, np.real(matrix_series[:, i, j]), bc_type="natural"
+            )
+            imag_cs = CubicSpline(
+                s_span, np.imag(matrix_series[:, i, j]), bc_type="natural"
+            )
+            deriv_series[:, i, j] = real_cs.derivative()(
+                s_span
+            ) + 1j * imag_cs.derivative()(s_span)
+
+    return deriv_series
+
+
+# -----------------------------------------------------------------------------
+# 端点安全差分工具已废弃
