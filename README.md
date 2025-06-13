@@ -78,9 +78,9 @@ dapt_reproduction/
 ### **最终生效的递推关系**
 
 我们发现，能完美复现所有结果的非对角项递推关系为：
-$$
+```math
 \mathbf{B}_{mn}^{(p+1)}(s) = \frac{\mathrm{i}\hbar}{\Delta_{nm}(s)}\left( -\dot{\mathbf{B}}_{mn}^{(p)}(s) - \sum_{k}\mathbf{B}_{nk}^{(p)}(s)\mathbf{M}^{km}(s) \right)
-$$
+```
 这个公式与原文 `Eq. (25)` 的区别在于：
 
 1. **求和项索引**: 使用 `Σ B_nk M^km` 而非 `Σ B_mk M^kn`。这个结构是产生正确一阶物理驱动的关键。
@@ -261,4 +261,4 @@ python -m pytest -m "integration" -v   # 集成测试
 
 ## 联系方式
 
-如有问题或建议，请联系：Gilbert Young
+如有问题或建议，请联系：[Gilbert Young](mailto:gilbertyoung0015@gmail.com)
